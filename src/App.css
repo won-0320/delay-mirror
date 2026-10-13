@@ -1,0 +1,265 @@
+:root {
+  --bg: #000;
+  --panel: #15171c;
+  --line: #2a2e37;
+  --text: #f2f4f7;
+  --muted: #9aa3b2;
+  --accent: #22c55e;
+  --accent-text: #04220f;
+  --warn: #f59e0b;
+  --rec: #ef4444;
+  font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+/* 카메라 원본: 화면에는 안 보이지만 계속 재생되어야 함 */
+.source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.view {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.view.mirrored {
+  transform: scaleX(-1);
+}
+
+.overlay.center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  font-size: 22px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.overlay.error {
+  color: #fecaca;
+}
+
+.wait-num {
+  font-size: 120px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 20px;
+}
+
+.badge b {
+  font-size: 28px;
+  color: var(--accent);
+}
+
+.badge-replay {
+  color: var(--warn);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.controls {
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn {
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #222631;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn.on {
+  background: #1f3b2b;
+  border-color: var(--accent);
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+.btn.big {
+  font-size: 19px;
+  padding: 0 24px;
+}
+
+.delay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.delay input {
+  flex: 1;
+}
+
+.delay .btn {
+  width: 48px;
+  padding: 0;
+  font-size: 24px;
+}
+
+.delay-label {
+  min-width: 52px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type='range'] {
+  accent-color: var(--accent);
+  height: 32px;
+}
+
+.scrub {
+  width: 100%;
+}
+
+.seg {
+  display: flex;
+  gap: 6px;
+}
+
+.note {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .note {
+    margin-left: 0;
+  }
+  .btn.big,
+  .btn.wide {
+    flex: 1;
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.mode-switch {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.btn.rec {
+  background: var(--rec);
+  border-color: var(--rec);
+  color: #fff;
+  font-weight: 700;
+}
+
+.btn.wide {
+  min-width: 240px;
+  min-height: 60px;
+  font-size: 22px;
+}
+
+.badge-rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #fecaca;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--rec);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
