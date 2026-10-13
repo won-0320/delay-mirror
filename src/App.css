@@ -5,7 +5,6 @@
   --text: #f2f4f7;
   --muted: #9aa3b2;
   --accent: #22c55e;
-  --accent-text: #04220f;
   --warn: #f59e0b;
   --rec: #ef4444;
   font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
@@ -78,13 +77,6 @@ body,
   color: #fecaca;
 }
 
-.wait-num {
-  font-size: 120px;
-  font-weight: 800;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
 .badge {
   position: absolute;
   top: 12px;
@@ -93,11 +85,6 @@ body,
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.6);
   font-size: 20px;
-}
-
-.badge b {
-  font-size: 28px;
-  color: var(--accent);
 }
 
 .badge-replay {
@@ -148,41 +135,9 @@ body,
   border-color: var(--accent);
 }
 
-.btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-  font-weight: 700;
-}
-
 .btn.big {
   font-size: 19px;
   padding: 0 24px;
-}
-
-.delay {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 260px;
-}
-
-.delay input {
-  flex: 1;
-}
-
-.delay .btn {
-  width: 48px;
-  padding: 0;
-  font-size: 24px;
-}
-
-.delay-label {
-  min-width: 52px;
-  font-size: 22px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
 }
 
 input[type='range'] {
@@ -217,15 +172,6 @@ input[type='range'] {
 
 [hidden] {
   display: none !important;
-}
-
-.mode-switch {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  padding: 4px;
-  border-radius: 14px;
-  background: rgba(0, 0, 0, 0.6);
 }
 
 .btn.rec {

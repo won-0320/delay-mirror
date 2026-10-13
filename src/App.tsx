@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCamera, type Facing } from './hooks/useCamera.ts'
-import { FrameBuffer, frameAt, type Frame } from './lib/frameBuffer.ts'
+import { frameAt, type Frame } from './lib/frameBuffer.ts'
 
-const MIN_DELAY = 3
-const MAX_DELAY = 20
-const KEEP_EXTRA_MS = 10_000 // 지연 시간보다 이만큼 더 보관 → 다시보기에 사용
 const MAX_RECORD_MS = 60_000 // 녹화 최대 길이 (태블릿 메모리 보호)
 const CAPTURE_MS = 50 // 약 20fps
 const CAPTURE_WIDTH = 960
@@ -12,14 +9,16 @@ const JPEG_QUALITY = 0.7
 const SPEEDS = [0.25, 0.5, 1] as const
 const SETTINGS_KEY = 'delay-mirror:settings'
 
-type Mode = 'delay' | 'record'
-type Settings = { mode: Mode; delay: number; facing: Facing; mirror: boolean }
-const DEFAULT_SETTINGS: Settings = { mode: 'delay', delay: 8, facing: 'environment', mirror: false }
+type Settings = { facing: Facing; mirror: boolean }
+const DEFAULT_SETTINGS: Settings = { facing: 'environment', mirror: false }
 
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) }
+    if (raw) {
+      const { facing, mirror } = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) }
+      return { facing, mirror }
+    }
   } catch {
     // 저장소를 못 쓰면 기본값
   }
@@ -47,27 +46,25 @@ function formatClock(ms: number) {
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings)
-  const { mode, delay, facing, mirror } = settings
+  const { facing, mirror } = settings
   const { videoRef, ready, error } = useCamera(facing)
 
   const [replay, setReplay] = useState<Replay | null>(null)
   const [playing, setPlaying] = useState(true)
   const [speed, setSpeed] = useState<number>(0.5)
   const [playheadView, setPlayheadView] = useState(0)
-  const [waitLeft, setWaitLeft] = useState<number | null>(null)
   const [recStart, setRecStart] = useState<number | null>(null)
   const [recElapsed, setRecElapsed] = useState(0)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const bufferRef = useRef(new FrameBuffer())
   const recordRef = useRef<Frame[]>([])
   const recStartRef = useRef<number | null>(null)
   const playheadRef = useRef(0)
   const stopRecordingRef = useRef<() => void>(() => {})
 
   // 렌더 루프에서 최신 값을 읽기 위한 ref
-  const live = useRef({ mode, delay, replay, playing, speed })
-  live.current = { mode, delay, replay, playing, speed }
+  const live = useRef({ replay, playing, speed })
+  live.current = { replay, playing, speed }
   recStartRef.current = recStart
 
   const update = (patch: Partial<Settings>) =>
@@ -98,15 +95,19 @@ export default function App() {
   }, [])
   stopRecordingRef.current = stopRecording
 
-  // 카메라나 모드가 바뀌면 이전 영상과 진행 중인 녹화는 버린다
+  const backToCamera = useCallback(() => {
+    setReplay(null)
+    setPlaying(true)
+  }, [])
+
+  // 카메라가 바뀌면 이전 영상과 진행 중인 녹화는 버린다
   useEffect(() => {
-    bufferRef.current.clear()
     recordRef.current = []
     setRecStart(null)
     setReplay(null)
-  }, [facing, mode])
+  }, [facing])
 
-  // ── 캡처: 카메라 프레임을 JPEG로 압축해 버퍼에 쌓기 ──
+  // ── 캡처: 녹화 중일 때 카메라 프레임을 JPEG로 압축해 쌓기 ──
   useEffect(() => {
     if (!ready) return
     const video = videoRef.current
@@ -117,9 +118,8 @@ export default function App() {
     let pending = 0
 
     const id = window.setInterval(() => {
+      if (recStartRef.current === null) return
       if (pending > 2 || video.readyState < 2 || !video.videoWidth) return
-      // 녹화 모드에서는 녹화 중일 때만 캡처
-      if (live.current.mode === 'record' && recStartRef.current === null) return
       const scale = Math.min(1, CAPTURE_WIDTH / video.videoWidth)
       const w = Math.round(video.videoWidth * scale)
       const h = Math.round(video.videoHeight * scale)
@@ -133,15 +133,8 @@ export default function App() {
       canvas.toBlob(
         (blob) => {
           pending--
-          if (!blob) return
-          if (live.current.mode === 'record') {
-            const started = recStartRef.current
-            if (started !== null && t >= started) recordRef.current.push({ t, blob })
-            return
-          }
-          const buf = bufferRef.current
-          buf.push({ t, blob })
-          buf.prune(performance.now() - MAX_DELAY * 1000 - KEEP_EXTRA_MS)
+          const started = recStartRef.current
+          if (blob && started !== null && t >= started) recordRef.current.push({ t, blob })
         },
         'image/jpeg',
         JPEG_QUALITY,
@@ -151,14 +144,13 @@ export default function App() {
     return () => window.clearInterval(id)
   }, [ready, videoRef])
 
-  // ── 화면 출력 루프 ──
+  // ── 화면 출력 루프: 녹화 시간 체크 + 다시보기 재생 ──
   useEffect(() => {
     let raf = 0
     let prev = performance.now()
     let drawn: Frame | undefined
     let decoding = false
     let lastUiUpdate = 0
-    let lastWait: number | null = null
 
     const draw = (frame: Frame) => {
       decoding = true
@@ -185,9 +177,7 @@ export default function App() {
     const tick = (now: number) => {
       const dt = now - prev
       prev = now
-      const { mode, delay, replay, playing, speed } = live.current
-      let frame: Frame | undefined
-      let wait: number | null = null
+      const { replay, playing, speed } = live.current
       const uiDue = now - lastUiUpdate > 100
       if (uiDue) lastUiUpdate = now
 
@@ -197,27 +187,17 @@ export default function App() {
           if (p > replay.end) p = replay.start
           playheadRef.current = p
         }
-        frame = frameAt(replay.frames, playheadRef.current)
+        const frame = frameAt(replay.frames, playheadRef.current)
         if (uiDue) setPlayheadView(playheadRef.current)
-      } else if (mode === 'record') {
+        if (frame && frame !== drawn && !decoding) draw(frame)
+      } else {
         const started = recStartRef.current
         if (started !== null) {
           const elapsed = now - started
           if (elapsed >= MAX_RECORD_MS) stopRecordingRef.current()
           else if (uiDue) setRecElapsed(elapsed)
         }
-      } else {
-        const buf = bufferRef.current
-        frame = buf.at(now - delay * 1000)
-        const first = buf.first
-        if (!frame) wait = first ? Math.ceil((first.t + delay * 1000 - now) / 1000) : delay
       }
-
-      if (wait !== lastWait) {
-        lastWait = wait
-        setWaitLeft(wait)
-      }
-      if (frame && frame !== drawn && !decoding) draw(frame)
       raf = requestAnimationFrame(tick)
     }
 
@@ -243,41 +223,19 @@ export default function App() {
     }
   }, [])
 
-  const startDelayReplay = useCallback(() => {
-    const buf = bufferRef.current
-    if (!buf.first || !buf.last) return
-    const frames = buf.frames.slice()
-    const start = frames[0].t
-    const end = frames[frames.length - 1].t
-    // 멈춘 순간 화면에 보이던 장면부터
-    playheadRef.current = Math.max(start, performance.now() - delay * 1000)
-    setPlayheadView(playheadRef.current)
-    setPlaying(false)
-    setReplay({ frames, start, end })
-  }, [delay])
-
-  const backToLive = useCallback(() => {
-    setReplay(null)
-    setPlaying(true)
-  }, [])
-
   const recording = recStart !== null
 
-  // 스페이스바 (PC에서 사용할 때)
-  // 지연 화면: 멈춤/실시간 전환 · 녹화: 녹화 시작/멈춤
+  // 스페이스바: 녹화 시작/멈춤 (PC에서 사용할 때)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.target instanceof HTMLInputElement) return
       e.preventDefault()
-      if (mode === 'record') {
-        if (recording) stopRecording()
-        else if (ready) startRecording()
-      } else if (replay) backToLive()
-      else startDelayReplay()
+      if (recording) stopRecording()
+      else if (ready) startRecording()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [mode, recording, ready, replay, startRecording, stopRecording, startDelayReplay, backToLive])
+  }, [recording, ready, startRecording, stopRecording])
 
   const toggleFullscreen = () => {
     const doc = document as Document & { webkitExitFullscreen?: () => void; webkitFullscreenElement?: Element }
@@ -292,56 +250,25 @@ export default function App() {
     }
   }
 
-  // 녹화 모드에서 다시보기가 아닐 때는 카메라 영상을 지연 없이 바로 보여준다
-  const showLiveVideo = mode === 'record' && !replay
   const mirrorClass = mirror ? ' mirrored' : ''
 
   let badge
-  if (replay && mode === 'record') {
+  if (replay) {
     badge = (
       <span className="badge-replay">
-        ▶ 녹화 다시보기 · {((playheadView - replay.start) / 1000).toFixed(1)} /{' '}
+        ▶ 다시보기 · {((playheadView - replay.start) / 1000).toFixed(1)} /{' '}
         {((replay.end - replay.start) / 1000).toFixed(1)}초
       </span>
     )
-  } else if (replay) {
-    badge = <span className="badge-replay">⏸ 다시보기 · {((replay.end - playheadView) / 1000).toFixed(1)}초 전</span>
-  } else if (mode === 'record') {
-    badge = recording ? (
+  } else if (recording) {
+    badge = (
       <span className="badge-rec">
         <span className="rec-dot" /> 녹화 중 {formatClock(recElapsed)}
       </span>
-    ) : (
-      <span>실시간 화면</span>
     )
   } else {
-    badge = (
-      <span>
-        <b>{delay}</b>초 전 모습
-      </span>
-    )
+    badge = <span>카메라 화면</span>
   }
-
-  const settingsRow = (
-    <div className="row">
-      <button
-        className="btn"
-        disabled={recording}
-        onClick={() => update({ facing: facing === 'user' ? 'environment' : 'user' })}
-      >
-        🔄 {facing === 'user' ? '전면' : '후면'} 카메라
-      </button>
-      <button className={mirror ? 'btn on' : 'btn'} onClick={() => update({ mirror: !mirror })}>
-        ↔ 좌우 반전
-      </button>
-      {fullscreenSupported && (
-        <button className="btn" onClick={toggleFullscreen}>
-          ⛶ 전체화면
-        </button>
-      )}
-      <span className="note">영상은 이 기기 메모리에만 잠깐 머물며 저장·전송되지 않습니다</span>
-    </div>
-  )
 
   let controls
   if (replay) {
@@ -379,24 +306,16 @@ export default function App() {
               </button>
             ))}
           </div>
-          {mode === 'record' ? (
-            <>
-              <button className="btn rec big" onClick={startRecording} disabled={!ready}>
-                ● 다시 녹화
-              </button>
-              <button className="btn big" onClick={backToLive}>
-                카메라 화면
-              </button>
-            </>
-          ) : (
-            <button className="btn primary big" onClick={backToLive}>
-              ● 실시간으로
-            </button>
-          )}
+          <button className="btn rec big" onClick={startRecording} disabled={!ready}>
+            ● 다시 녹화
+          </button>
+          <button className="btn big" onClick={backToCamera}>
+            카메라 화면
+          </button>
         </div>
       </div>
     )
-  } else if (mode === 'record') {
+  } else {
     controls = (
       <div className="controls">
         <div className="row">
@@ -411,43 +330,24 @@ export default function App() {
           )}
           <span className="note">최대 {MAX_RECORD_MS / 1000}초까지 녹화되고, 멈추면 바로 다시보기가 나옵니다</span>
         </div>
-        {settingsRow}
-      </div>
-    )
-  } else {
-    controls = (
-      <div className="controls">
         <div className="row">
-          <div className="delay">
-            <button
-              className="btn"
-              onClick={() => update({ delay: Math.max(MIN_DELAY, delay - 1) })}
-              aria-label="지연 시간 줄이기"
-            >
-              −
-            </button>
-            <input
-              type="range"
-              min={MIN_DELAY}
-              max={MAX_DELAY}
-              value={delay}
-              onChange={(e) => update({ delay: Number(e.target.value) })}
-              aria-label="지연 시간"
-            />
-            <button
-              className="btn"
-              onClick={() => update({ delay: Math.min(MAX_DELAY, delay + 1) })}
-              aria-label="지연 시간 늘리기"
-            >
-              +
-            </button>
-            <span className="delay-label">{delay}초</span>
-          </div>
-          <button className="btn primary big" onClick={startDelayReplay} disabled={!ready || waitLeft !== null}>
-            ⏸ 멈추고 다시보기
+          <button
+            className="btn"
+            disabled={recording}
+            onClick={() => update({ facing: facing === 'user' ? 'environment' : 'user' })}
+          >
+            🔄 {facing === 'user' ? '전면' : '후면'} 카메라
           </button>
+          <button className={mirror ? 'btn on' : 'btn'} onClick={() => update({ mirror: !mirror })}>
+            ↔ 좌우 반전
+          </button>
+          {fullscreenSupported && (
+            <button className="btn" onClick={toggleFullscreen}>
+              ⛶ 전체화면
+            </button>
+          )}
+          <span className="note">영상은 이 기기 메모리에만 잠깐 머물며 저장·전송되지 않습니다</span>
         </div>
-        {settingsRow}
       </div>
     )
   }
@@ -455,41 +355,14 @@ export default function App() {
   return (
     <div className="app">
       <div className="stage">
-        <video
-          ref={videoRef}
-          className={showLiveVideo ? 'view' + mirrorClass : 'source'}
-          muted
-          playsInline
-        />
-        <canvas ref={canvasRef} className={'view' + mirrorClass} hidden={showLiveVideo} />
+        {/* 다시보기가 아닐 때는 카메라 영상을 그대로 보여준다 */}
+        <video ref={videoRef} className={replay ? 'source' : 'view' + mirrorClass} muted playsInline />
+        <canvas ref={canvasRef} className={'view' + mirrorClass} hidden={!replay} />
 
         {error && <div className="overlay center error">{error}</div>}
         {!error && !ready && <div className="overlay center">카메라 켜는 중…</div>}
-        {!error && ready && mode === 'delay' && !replay && waitLeft !== null && (
-          <div className="overlay center">
-            <div className="wait-num">{Math.max(waitLeft, 0)}</div>
-            <div>초 후부터 지연 화면이 나옵니다</div>
-          </div>
-        )}
 
         <div className="badge">{badge}</div>
-
-        <div className="mode-switch seg">
-          <button
-            className={mode === 'delay' ? 'btn on' : 'btn'}
-            disabled={recording}
-            onClick={() => update({ mode: 'delay' })}
-          >
-            지연 화면
-          </button>
-          <button
-            className={mode === 'record' ? 'btn on' : 'btn'}
-            disabled={recording}
-            onClick={() => update({ mode: 'record' })}
-          >
-            녹화
-          </button>
-        </div>
       </div>
 
       {controls}
